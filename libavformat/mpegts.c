@@ -39,11 +39,7 @@
 #include "isom.h"
 #if CONFIG_ICONV
 #include <iconv.h>
-#endif
-
-#if CONFIG_LIBARIBB24
-#include <aribb24/aribb24.h>
-#include <aribb24/decoder.h>
+#include "libavformat/aribb24_text_conversion.h"
 #endif
 
 /* maximum size in which we look for synchronization if
@@ -171,10 +167,6 @@ struct MpegTSContext {
     int merge_pmt_versions;
 
     enum MpegTSMode demux_mode;
-
-#if CONFIG_LIBARIBB24
-    arib_instance_t *arib_helper_instance;
-#endif
 
     /******************************************/
     /* private mpegts data */

@@ -67,9 +67,9 @@
 #define CSI 0x9b
 #define TIME 0x9d
 
-
 /* First define the conversion function from ARIB-STD-B24 to UCS-4.  */
 
+// clang-format off
 /* code sets */
 enum g_set
 {
@@ -113,7 +113,7 @@ enum mode_e
  * __GCONV_INPUT_INCOMPLETE is never used in this conversion, thus
  * we can re-use mbstate_t.__value and .__count:3 for the other purpose.
  */
-struct state_from {
+struct aribb24_state {
   /* __count */
   uint8_t cnt:3;    /* for use in skelton.c. always 0 */
   uint8_t pad0:1;
@@ -130,7 +130,7 @@ struct state_from {
   uint8_t g[4];     /* code set for G0..G3 */
 } __attribute__((packed));
 
-static const struct state_from def_state_from = {
+static const struct aribb24_state def_aribb24_state = {
   .cnt = 0,
   .gl = 0,
   .gr = 2,
@@ -347,464 +347,398 @@ static const struct mchar_entry ext_sym_music[] = {
   {.len = 2, .to = { 0x0072, 0x0029 }},
 };
 
+// clang-format on
 
-static int b24_char_conv (enum g_set set, unsigned char c1, unsigned char c2, uint32_t *out)
+static int b24_char_conv(enum g_set set, unsigned char c1, unsigned char c2, uint32_t *out)
 {
-  int len;
-  uint32_t ch;
+    int len;
+    uint32_t ch;
 
-  if (set > DRCS0_set && set <= DRCS15_set)
-    set = DRCS0_set;
+    if (set > DRCS0_set && set <= DRCS15_set)
+        set = DRCS0_set;
 
-  switch (set)
-    {
-      case ASCII_set:
-      case ASCII_x_set:
-      case PROP_ASCII_set:
-    if (c1 == 0x7e)
-      *out = 0x203e;
-    else if (c1 == 0x5c)
-      *out = 0xa5;
-    else
-      *out = c1;
-    return 1;
-
-      case KATAKANA_set:
-      case PROP_KATA_set:
-    if (c1 <= 0x76)
-      *out = 0x3080 + c1;
-    else
-      *out = kata_punc[c1 - 0x77];
-    return 1;
-
-      case HIRAGANA_set:
-      case PROP_HIRA_set:
-    if (c1 <= 0x73)
-      *out = 0x3020 + c1;
-    else if (c1 == 0x77 || c1 == 0x78)
-      *out = hira_punc[c1 - 0x77];
-    else if (c1 >= 0x79)
-      *out = kata_punc[c1 - 0x77];
-    else
-      return 0;
-    return 1;
-
-      case JIS0201_KATA_set:
-    if (c1 > 0x5f)
-      return 0;
-    *out = 0xff40 + c1;
-    return 1;
-
-      case EXTRA_SYMBOLS_set:
-    if (c1 == 0x75 || (c1 == 0x76 && (c2 - 0x20) <=43))
-      {
-        *out = extra_kanji[(c1 - 0x75) * 96 + (c2 - 0x20)];
-        return 1;
-      }
-    /* fall through */
-      case KANJI_set:
-    /* check extra symbols */
-    if (c1 >= 0x7a && c1 <= 0x7e)
-      {
-        const struct mchar_entry *entry;
-
-        c1 -= 0x20;
-        c2 -= 0x20;
-        if (c1 == 0x5c && c2 >= 0x1a && c2 <= 0x1f)
-          entry = &ext_sym_smallk[c2 - 0x1a];
-        else if (c1 == 0x5c && c2 >= 0x38 && c2 <= 0x55)
-          entry = &ext_sym_music[c2 - 0x38];
+    switch (set) {
+    case ASCII_set:
+    case ASCII_x_set:
+    case PROP_ASCII_set:
+        if (c1 == 0x7e)
+            *out = 0x203e;
+        else if (c1 == 0x5c)
+            *out = 0xa5;
         else
-          entry = NULL;
-
-        if (entry)
-          {
-        int i;
-
-        for (i = 0; i < entry->len; i++)
-          out[i] = entry->to[i];
-        return i;
-          }
-
-        *out = extra_symbols[c1 - 0x5a][c2];
-        if (*out == 0)
-          return 0;
-
+            *out = c1;
         return 1;
-      }
-    if (set == EXTRA_SYMBOLS_set)
-      return 0;
 
-    /* non-JISX0213 modification. (combining chars) */
-    if (c1 == 0x22 && c2 == 0x7e)
-      {
-        *out = 0x20dd;
+    case KATAKANA_set:
+    case PROP_KATA_set:
+        if (c1 <= 0x76)
+            *out = 0x3080 + c1;
+        else
+            *out = kata_punc[c1 - 0x77];
         return 1;
-      }
-    else if (c1 == 0x21 && c2 >= 0x2d && c2 <= 0x32)
-      {
-        *out = nonspacing_symbol[c2 - 0x2d];
+
+    case HIRAGANA_set:
+    case PROP_HIRA_set:
+        if (c1 <= 0x73)
+            *out = 0x3020 + c1;
+        else if (c1 == 0x77 || c1 == 0x78)
+            *out = hira_punc[c1 - 0x77];
+        else if (c1 >= 0x79)
+            *out = kata_punc[c1 - 0x77];
+        else
+            return 0;
         return 1;
-      }
-    /* fall through */
-      case JISX0213_1_set:
-      case JISX0213_2_set:
-    len = 1;
-    ch = jisx0213_to_ucs4(c1 | (set == JISX0213_2_set ? 0x0200 : 0x0100),
-                  c2);
-    if (ch == 0)
-      return 0;
-    if (ch < 0x80)
-      {
-        len = 2;
-        out[0] = __jisx0213_to_ucs_combining[ch - 1][0];
-        out[1] = __jisx0213_to_ucs_combining[ch - 1][1];
-      }
-    else
-      *out = ch;
-    return len;
 
-      case MOSAIC_A_set:
-      case MOSAIC_B_set:
-      case MOSAIC_C_set:
-      case MOSAIC_D_set:
-      case DRCS0_set:
-      case MACRO_set:
-    *out = __UNKNOWN_10646_CHAR;
-    return 1;
+    case JIS0201_KATA_set:
+        if (c1 > 0x5f)
+            return 0;
+        *out = 0xff40 + c1;
+        return 1;
 
-      default:
-    break;
+    case EXTRA_SYMBOLS_set:
+        if (c1 == 0x75 || (c1 == 0x76 && (c2 - 0x20) <= 43)) {
+            *out = extra_kanji[(c1 - 0x75) * 96 + (c2 - 0x20)];
+            return 1;
+        }
+        /* fall through */
+    case KANJI_set:
+        /* check extra symbols */
+        if (c1 >= 0x7a && c1 <= 0x7e) {
+            const struct mchar_entry *entry;
+
+            c1 -= 0x20;
+            c2 -= 0x20;
+            if (c1 == 0x5c && c2 >= 0x1a && c2 <= 0x1f)
+                entry = &ext_sym_smallk[c2 - 0x1a];
+            else if (c1 == 0x5c && c2 >= 0x38 && c2 <= 0x55)
+                entry = &ext_sym_music[c2 - 0x38];
+            else
+                entry = NULL;
+
+            if (entry) {
+                int i;
+
+                for (i = 0; i < entry->len; i++)
+                    out[i] = entry->to[i];
+                return i;
+            }
+
+            *out = extra_symbols[c1 - 0x5a][c2];
+            if (*out == 0)
+                return 0;
+
+            return 1;
+        }
+        if (set == EXTRA_SYMBOLS_set)
+            return 0;
+
+        /* non-JISX0213 modification. (combining chars) */
+        if (c1 == 0x22 && c2 == 0x7e) {
+            *out = 0x20dd;
+            return 1;
+        } else if (c1 == 0x21 && c2 >= 0x2d && c2 <= 0x32) {
+            *out = nonspacing_symbol[c2 - 0x2d];
+            return 1;
+        }
+        /* fall through */
+    case JISX0213_1_set:
+    case JISX0213_2_set:
+        len = 1;
+        ch = jisx0213_to_ucs4(c1 | (set == JISX0213_2_set ? 0x0200 : 0x0100), c2);
+        if (ch == 0)
+            return 0;
+        if (ch < 0x80) {
+            len = 2;
+            out[0] = __jisx0213_to_ucs_combining[ch - 1][0];
+            out[1] = __jisx0213_to_ucs_combining[ch - 1][1];
+        } else
+            *out = ch;
+        return len;
+
+    case MOSAIC_A_set:
+    case MOSAIC_B_set:
+    case MOSAIC_C_set:
+    case MOSAIC_D_set:
+    case DRCS0_set:
+    case MACRO_set:
+        *out = __UNKNOWN_10646_CHAR;
+        return 1;
+
+    default:
+        break;
     }
 
-  return 0;
+    return 0;
 }
 
-int aribb24_to_ucs2(void *state, const unsigned char *inptr, const unsigned char *inend,
-                    const unsigned char *outptr, unsigned char *outend,
-                    size_t *irreversible)
+int aribb24_to_ucs4(struct aribb24_state *state, const unsigned char *inptr, const unsigned char *inend,
+                    const unsigned char *outptr, unsigned char *outend, size_t *irreversible)
 {
-    struct state_from st = *(struct state_from *)state;
+    struct aribb24_state st;
     int result = AVERROR_INVALIDDATA;
 
+    if (!state)
+        return result;
+    else
+        st = *state;
+
     if (st.g[0] == 0)
-        st = def_state_from;
+        st = def_aribb24_state;
 
     while (inptr != inend) {
         uint32_t ch = *inptr;
-        if (ch == 0)
-          {
-        st.mode = NORMAL;
-        ++ inptr;
-        continue;
-          }
-        if (st.mode == CTRL_SEQ)
-          {
-        if (st.skip)
-          {
-            --st.skip;
-            if (st.skip == 0)
-              st.mode = NORMAL;
-            if (ch < 0x40 || ch > 0x7f)
-              // if ignoring errors skip 1 bytes
-              break;
-          }
-        else if (st.prev == MACRO_CTRL)
-          {
-            if (ch == MACRO_CTRL)
-              st.skip = 1;
-            else if (ch == LF || ch == CR) {
-              st = def_state_from;
-              AV_WB32(outptr, ch);
-              outptr += 4;
+        if (ch == 0) {
+            st.mode = NORMAL;
+            ++inptr;
+            continue;
+        }
+        if (st.mode == CTRL_SEQ) {
+            if (st.skip) {
+                --st.skip;
+                if (st.skip == 0)
+                    st.mode = NORMAL;
+                if (ch < 0x40 || ch > 0x7f)
+                    // if ignoring errors skip 1 bytes
+                    break;
+            } else if (st.prev == MACRO_CTRL) {
+                if (ch == MACRO_CTRL)
+                    st.skip = 1;
+                else if (ch == LF || ch == CR) {
+                    st = def_aribb24_state;
+                    AV_WB32(outptr, ch);
+                    outptr += 4;
+                }
+            } else if (st.prev == CSI && (ch == 0x5b || ch == 0x5c || ch == 0x6f))
+                st.mode = NORMAL;
+            else if (st.prev == TIME || st.prev == CSI) {
+                if (ch == 0x20 || (st.prev == TIME && ch == 0x28))
+                    st.skip = 1;
+                else if (!((st.prev == TIME && ch == 0x29) || ch == 0x3b ||
+                           (ch >= 0x30 && ch <= 0x39))) {
+                    st.mode = NORMAL;
+                    // if ignoring errors skip 1 bytes
+                    break;
+                }
+            } else if (st.prev == COL || st.prev == CDC) {
+                if (ch == 0x20)
+                    st.skip = 1;
+                else {
+                    st.mode = NORMAL;
+                    if (ch < 0x40 || ch > 0x7f)
+                        // if ignoring errors skip 1 bytes
+                        break;
+                }
             }
-          }
-        else if (st.prev == CSI && (ch == 0x5b || ch == 0x5c || ch == 0x6f))
-          st.mode = NORMAL;
-        else if (st.prev == TIME || st.prev == CSI)
-          {
-            if (ch == 0x20 || (st.prev == TIME && ch == 0x28))
-              st.skip = 1;
-            else if (!((st.prev == TIME && ch == 0x29)
-                   || ch == 0x3b || (ch >= 0x30 && ch <= 0x39)))
-              {
+            ++inptr;
+            continue;
+        }
+        if (ch == LF) {
+            st = def_aribb24_state;
+            AV_WB32(outptr, ch);
+            outptr += 4;
+            ++inptr;
+            continue;
+        }
+        if (st.mode == ESCAPE) {
+            if (ch == LS2 || ch == LS3) {
+                st.mode = NORMAL;
+                st.gl = (ch == LS2) ? 2 : 3;
+                st.ss = 0;
+            } else if (ch == LS1R || ch == LS2R || ch == LS3R) {
+                st.mode = NORMAL;
+                st.gr = (ch == LS1R) ? 1 : (ch == LS2R) ? 2 : 3;
+                st.ss = 0;
+            } else if (ch == 0x24)
+                st.mode = DESIGNATE_MB;
+            else if (ch >= 0x28 && ch <= 0x2b) {
+                st.mode = G_SEL_1B;
+                st.gidx = ch - 0x28;
+            } else {
+                st.mode = NORMAL;
+                // if ignoring errors skip 1 bytes
+                break;
+            }
+            ++inptr;
+            continue;
+        }
+        if (st.mode == DESIGNATE_MB) {
+            if (ch == KANJI_set || ch == JISX0213_1_set || ch == JISX0213_2_set ||
+                ch == EXTRA_SYMBOLS_set) {
+                st.mode = NORMAL;
+                st.g[0] = ch;
+            } else if (ch >= 0x28 && ch <= 0x2b) {
+                st.mode = G_SEL_MB;
+                st.gidx = ch - 0x28;
+            } else {
+                st.mode = NORMAL;
+                // if ignoring errors skip 1 bytes
+                break;
+            }
+            ++inptr;
+            continue;
+        }
+        if (st.mode == G_SEL_1B) {
+            if (ch == ASCII_set || ch == ASCII_x_set || ch == JIS0201_KATA_set ||
+                (ch >= 0x30 && ch <= 0x38)) {
+                st.g[st.gidx] = ch;
+                st.mode = NORMAL;
+            } else if (ch == 0x20)
+                st.mode = DRCS_SEL_1B;
+            else {
+                st.mode = NORMAL;
+                // if ignoring errors skip 1 bytes
+                break;
+            }
+            ++inptr;
+            continue;
+        }
+        if (st.mode == G_SEL_MB) {
+            if (ch == KANJI_set || ch == JISX0213_1_set || ch == JISX0213_2_set ||
+                ch == EXTRA_SYMBOLS_set) {
+                st.g[st.gidx] = ch;
+                st.mode = NORMAL;
+            } else if (ch == 0x20)
+                st.mode = DRCS_SEL_MB;
+            else {
+                st.mode = NORMAL;
+                // if ignoring errors skip 1 bytes
+                break;
+            }
+            ++inptr;
+            continue;
+        }
+        if (st.mode == DRCS_SEL_1B) {
             st.mode = NORMAL;
-            // if ignoring errors skip 1 bytes
-            break;
-              }
-          }
-        else if (st.prev == COL || st.prev == CDC)
-          {
-            if (ch == 0x20)
-              st.skip = 1;
+            if (ch == 0x70 || (ch >= 0x41 && ch <= 0x4f))
+                st.g[st.gidx] = ch | 0x80;
             else
-              {
+                // if ignoring errors skip 1 bytes
+                break;
+            ++inptr;
+            continue;
+        }
+        if (st.mode == DRCS_SEL_MB) {
             st.mode = NORMAL;
-            if (ch < 0x40 || ch > 0x7f)
-              // if ignoring errors skip 1 bytes
-              break;
-              }
-          }
-        ++ inptr;
-        continue;
-          }
-        if (ch == LF)
-          {
-        st = def_state_from;
-        AV_WB32 (outptr, ch);
-        outptr += 4;
-        ++ inptr;
-        continue;
-          }
-        if (st.mode == ESCAPE)
-          {
-        if (ch == LS2 || ch == LS3)
-          {
-            st.mode = NORMAL;
-            st.gl = (ch == LS2) ? 2 : 3;
-            st.ss = 0;
-          }
-        else if (ch == LS1R || ch == LS2R || ch == LS3R)
-          {
-            st.mode = NORMAL;
-            st.gr = (ch == LS1R) ? 1 : (ch == LS2R) ? 2 : 3;
-            st.ss = 0;
-          }
-        else if (ch == 0x24)
-          st.mode = DESIGNATE_MB;
-        else if (ch >= 0x28 && ch <= 0x2b)
-          {
-            st.mode = G_SEL_1B;
-            st.gidx = ch - 0x28;
-          }
-        else
-          {
-            st.mode = NORMAL;
-            // if ignoring errors skip 1 bytes
-            break;
-          }
-        ++ inptr;
-        continue;
-          }
-        if (st.mode == DESIGNATE_MB)
-          {
-        if (ch == KANJI_set || ch == JISX0213_1_set || ch == JISX0213_2_set
-            || ch == EXTRA_SYMBOLS_set)
-          {
-            st.mode = NORMAL;
-            st.g[0] = ch;
-          }
-        else if (ch >= 0x28 && ch <= 0x2b)
-          {
-          st.mode = G_SEL_MB;
-          st.gidx = ch - 0x28;
-          }
-        else
-          {
-            st.mode = NORMAL;
-            // if ignoring errors skip 1 bytes
-            break;
-          }
-        ++ inptr;
-        continue;
-          }
-        if (st.mode == G_SEL_1B)
-          {
-        if (ch == ASCII_set || ch == ASCII_x_set || ch == JIS0201_KATA_set
-            || (ch >= 0x30 && ch <= 0x38))
-          {
-            st.g[st.gidx] = ch;
-            st.mode = NORMAL;
-          }
-        else if (ch == 0x20)
-            st.mode = DRCS_SEL_1B;
-        else
-          {
-            st.mode = NORMAL;
-            // if ignoring errors skip 1 bytes
-            break;
-          }
-        ++ inptr;
-        continue;
-          }
-        if (st.mode == G_SEL_MB)
-          {
-        if (ch == KANJI_set || ch == JISX0213_1_set || ch == JISX0213_2_set
-            || ch == EXTRA_SYMBOLS_set)
-          {
-            st.g[st.gidx] = ch;
-            st.mode = NORMAL;
-          }
-        else if (ch == 0x20)
-          st.mode = DRCS_SEL_MB;
-        else
-          {
-            st.mode = NORMAL;
-            // if ignoring errors skip 1 bytes
-            break;
-          }
-        ++ inptr;
-        continue;
-          }
-        if (st.mode == DRCS_SEL_1B)
-          {
-        st.mode = NORMAL;
-        if (ch == 0x70 || (ch >= 0x41 && ch <= 0x4f))
-          st.g[st.gidx] = ch | 0x80;
-        else
-          // if ignoring errors skip 1 bytes
-          break;
-        ++ inptr;
-        continue;
-          }
-        if (st.mode == DRCS_SEL_MB)
-          {
-        st.mode = NORMAL;
-        if (ch == 0x40)
-          st.g[st.gidx] = ch | 0x80;
-        else
-          // if ignoring errors skip 1 bytes
-          break;
-        ++ inptr;
-        continue;
-          }
-        if (st.mode == MB_2ND)
-          {
-        int gidx;
-        int i, len;
-        uint32_t out[4 * 4];
-        gidx = (st.ss) ? st.ss : (ch & 0x80) ? st.gr : st.gl;
-        st.mode = NORMAL;
-        st.ss = 0;
-        if (!(ch & 0x60)) /* C0/C1 */
-          // if ignoring errors skip 1 bytes
-          break;
-        if (st.ss > 0 && (ch & 0x80))
-          // if ignoring errors skip 1 bytes
-          break;
-        if ((st.prev & 0x80) != (ch & 0x80))
-          // if ignoring errors skip 1 bytes
-          break;
-        len = b24_char_conv(st.g[gidx], (st.prev & 0x7f), (ch & 0x7f), out);
-        if (len == 0)
-          // if ignoring errors skip 1 bytes
-          break;
-        if (outptr + 4 * len > outend)
-          {
-            result = AVERROR(ENOMEM);
-            break;
-          }
-        for (i = 0; i < len; i++)
-          {
-            if (irreversible && out[i] == __UNKNOWN_10646_CHAR)
-              ++ *irreversible;
-            AV_WB32 (outptr, out[i]);
-            outptr += 4;
-          }
-        ++ inptr;
-        continue;
-          }
-        if (st.mode == NORMAL)
-          {
-        int gidx, set;
-        if (!(ch & 0x60)) /* C0/C1 */
-          {
-            if (ch == ESC)
-              st.mode = ESCAPE;
-            else if (ch == SS2)
-              st.ss = 2;
-            else if (ch == SS3)
-              st.ss = 3;
-            else if (ch == LS0)
-              {
-            st.ss = 0;
-            st.gl = 0;
-              }
-            else if (ch == LS1)
-              {
-            st.ss = 0;
-            st.gl = 1;
-              }
-            else if (ch == BEL || ch == BS || ch == CR)
-              {
-            st.ss = 0;
-            AV_WB32 (outptr, ch);
-            outptr += 4;
-              }
-            else if (ch == 0x09 || ch == 0x0b || ch == 0x0c || ch == 0x18
-                 || ch == 0x1e || ch == 0x1f || (ch >= 0x80 && ch <= 0x8a)
-                 || ch == 0x99 || ch == 0x9a)
-              {
-            /* do nothing. just skip */
-              }
-            else if (ch == 0x16 || ch == 0x8b || ch == 0x91 || ch == 0x93
-                 || ch == 0x94 || ch == 0x97 || ch == 0x98)
-              {
-            st.mode = CTRL_SEQ;
-            st.skip = 1;
-              }
-            else if (ch == 0x1c)
-              {
-            st.mode = CTRL_SEQ;
-            st.skip = 2;
-              }
-            else if (ch == COL || ch == CDC || ch == MACRO_CTRL
-                 || ch == CSI ||ch == TIME)
-              {
-            st.mode = CTRL_SEQ;
-            st.skip = 0;
-            st.prev = ch;
-              }
+            if (ch == 0x40)
+                st.g[st.gidx] = ch | 0x80;
             else
-              // if ignoring errors skip 1 bytes
-              break;
-            ++ inptr;
+                // if ignoring errors skip 1 bytes
+                break;
+            ++inptr;
             continue;
-          }
-        if ((ch & 0x7f) == 0x20 || ch == 0x7f)
-          {
+        }
+        if (st.mode == MB_2ND) {
+            int gidx;
+            int i, len;
+            uint32_t out[4 * 4];
+            gidx = (st.ss) ? st.ss : (ch & 0x80) ? st.gr : st.gl;
+            st.mode = NORMAL;
             st.ss = 0;
-            AV_WB32 (outptr, ch);
-            outptr += 4;
-            ++ inptr;
+            if (!(ch & 0x60)) /* C0/C1 */
+                // if ignoring errors skip 1 bytes
+                break;
+            if (st.ss > 0 && (ch & 0x80))
+                // if ignoring errors skip 1 bytes
+                break;
+            if ((st.prev & 0x80) != (ch & 0x80))
+                // if ignoring errors skip 1 bytes
+                break;
+            len = b24_char_conv(st.g[gidx], (st.prev & 0x7f), (ch & 0x7f), out);
+            if (len == 0)
+                // if ignoring errors skip 1 bytes
+                break;
+            if (outptr + 4 * len > outend) {
+                result = AVERROR(ENOMEM);
+                break;
+            }
+            for (i = 0; i < len; i++) {
+                if (irreversible && out[i] == __UNKNOWN_10646_CHAR)
+                    ++*irreversible;
+                AV_WB32(outptr, out[i]);
+                outptr += 4;
+            }
+            ++inptr;
             continue;
-          }
-        if (ch == 0xff)
-          {
-            st.ss = 0;
-            AV_WB32 (outptr, __UNKNOWN_10646_CHAR);
-            if (irreversible)
-              ++ *irreversible;
-            outptr += 4;
-            ++ inptr;
+        }
+        if (st.mode == NORMAL) {
+            int gidx, set;
+            if (!(ch & 0x60)) /* C0/C1 */
+            {
+                if (ch == ESC)
+                    st.mode = ESCAPE;
+                else if (ch == SS2)
+                    st.ss = 2;
+                else if (ch == SS3)
+                    st.ss = 3;
+                else if (ch == LS0) {
+                    st.ss = 0;
+                    st.gl = 0;
+                } else if (ch == LS1) {
+                    st.ss = 0;
+                    st.gl = 1;
+                } else if (ch == BEL || ch == BS || ch == CR) {
+                    st.ss = 0;
+                    AV_WB32(outptr, ch);
+                    outptr += 4;
+                } else if (ch == 0x09 || ch == 0x0b || ch == 0x0c || ch == 0x18 || ch == 0x1e ||
+                           ch == 0x1f || (ch >= 0x80 && ch <= 0x8a) || ch == 0x99 || ch == 0x9a) {
+                    /* do nothing. just skip */
+                } else if (ch == 0x16 || ch == 0x8b || ch == 0x91 || ch == 0x93 || ch == 0x94 ||
+                           ch == 0x97 || ch == 0x98) {
+                    st.mode = CTRL_SEQ;
+                    st.skip = 1;
+                } else if (ch == 0x1c) {
+                    st.mode = CTRL_SEQ;
+                    st.skip = 2;
+                } else if (ch == COL || ch == CDC || ch == MACRO_CTRL || ch == CSI || ch == TIME) {
+                    st.mode = CTRL_SEQ;
+                    st.skip = 0;
+                    st.prev = ch;
+                } else
+                    // if ignoring errors skip 1 bytes
+                    break;
+                ++inptr;
+                continue;
+            }
+            if ((ch & 0x7f) == 0x20 || ch == 0x7f) {
+                st.ss = 0;
+                AV_WB32(outptr, ch);
+                outptr += 4;
+                ++inptr;
+                continue;
+            }
+            if (ch == 0xff) {
+                st.ss = 0;
+                AV_WB32(outptr, __UNKNOWN_10646_CHAR);
+                if (irreversible)
+                    ++*irreversible;
+                outptr += 4;
+                ++inptr;
+                continue;
+            }
+            if (st.ss > 0 && (ch & 0x80))
+                // if ignoring errors skip 1 bytes
+                break;
+            gidx = (st.ss) ? st.ss : (ch & 0x80) ? st.gr : st.gl;
+            set = st.g[gidx];
+            if (set == DRCS0_set || set == KANJI_set || set == JISX0213_1_set ||
+                set == JISX0213_2_set || set == EXTRA_SYMBOLS_set) {
+                st.mode = MB_2ND;
+                st.prev = ch;
+            } else {
+                uint32_t out;
+                st.ss = 0;
+                if (b24_char_conv(set, (ch & 0x7f), 0, &out) == 0)
+                    // if ignoring errors skip 1 bytes
+                    break;
+                if (out == __UNKNOWN_10646_CHAR && irreversible)
+                    ++*irreversible;
+                AV_WB32(outptr, out);
+                outptr += 4;
+            }
+            ++inptr;
             continue;
-          }
-        if (st.ss > 0 && (ch & 0x80))
-          // if ignoring errors skip 1 bytes
-          break;
-        gidx = (st.ss) ? st.ss : (ch & 0x80) ? st.gr : st.gl;
-        set = st.g[gidx];
-        if (set == DRCS0_set || set == KANJI_set || set == JISX0213_1_set
-            || set == JISX0213_2_set || set == EXTRA_SYMBOLS_set)
-          {
-            st.mode = MB_2ND;
-            st.prev = ch;
-          }
-        else
-          {
-            uint32_t out;
-            st.ss = 0;
-            if (b24_char_conv(set, (ch & 0x7f), 0, &out) == 0)
-              // if ignoring errors skip 1 bytes
-              break;
-            if (out == __UNKNOWN_10646_CHAR && irreversible)
-              ++ *irreversible;
-            AV_WB32 (outptr, out);
-            outptr += 4;
-          }
-        ++ inptr;
-        continue;
-          }
+        }
     }
 
     return result;
